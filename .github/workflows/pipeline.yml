@@ -1,0 +1,107 @@
+name: Full CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # JOB 1 — VALIDATE
+  # ─────────────────────────────────────────
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Pull the training data using DVC
+      - name: Pull data with DVC
+        env:
+          # Add your DVC remote credentials as secrets if needed
+          GDRIVE_CREDENTIALS_DATA: ${{ secrets.GDRIVE_CREDENTIALS_DATA }}
+        run: dvc pull
+
+      # 5. Train the model and log to MLflow
+      - name: Train and log to MLflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: python train.py
+
+      # 6. Export the MLflow Run ID to model_info.txt
+      #    train.py must write the run_id to this file (see note below)
+      - name: Save Run ID to model_info.txt
+        run: |
+          if [ ! -f model_info.txt ]; then
+            echo "ERROR: train.py did not create model_info.txt"
+            exit 1
+          fi
+          echo "Run ID saved:"
+          cat model_info.txt
+
+      # 7. Upload model_info.txt as a GitHub Actions artifact
+      #    so the deploy job can download it
+      - name: Persist model_info.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-info
+          path: model_info.txt
+
+  # ─────────────────────────────────────────
+  # JOB 2 — DEPLOY  (only runs if validate passes)
+  # ─────────────────────────────────────────
+  deploy:
+    runs-on: ubuntu-latest
+    needs: validate          # waits for validate to succeed
+
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 3. Install dependencies (mlflow needed for check_threshold.py)
+      - name: Install dependencies
+        run: pip install mlflow
+
+      # 4. Download the model_info.txt artifact from the validate job
+      - name: Download model_info artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: model-info
+
+      # 5. Show the Run ID we are working with
+      - name: Show Run ID
+        run: |
+          echo "Checking run:"
+          cat model_info.txt
+
+      # 6. Run the threshold check — fails pipeline if accuracy < 0.85
+      - name: Check accuracy threshold
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: python check_threshold.py
+
+      # 7. Mock Docker build (simulates containerisation)
+      - name: Mock Docker build
+        run: |
+          echo "Building Docker image for Run ID: $(cat model_info.txt)"
