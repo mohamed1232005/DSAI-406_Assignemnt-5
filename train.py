@@ -26,7 +26,7 @@ with mlflow.start_run() as run:
     model.fit(X_train, y_train)
 
     # Evaluate
-    accuracy = accuracy_score(y_test, model.predict(X_test))
+    accuracy = 0.5  # force low accuracy for testing
 
     # Log to MLflow
     mlflow.log_metric("accuracy", accuracy)
