@@ -39,5 +39,7 @@ with mlflow.start_run() as run:
     # Write the Run ID to model_info.txt so the deploy job can read it
     with open("model_info.txt", "w") as f:
         f.write(run.info.run_id)
+    with open("accuracy.txt", "w") as f:
+        f.write(str(accuracy))
 
 print("Training complete. Run ID saved to model_info.txt")
